@@ -2,14 +2,19 @@
 #include <string.h>
 #include <stdlib.h>
 #include <argp.h>
-
+#define UINT64_SIZE 18446744073709551615
+#define UINT32_SIZE 4294967295
+#define UINT16_SIZE 65535
+#define UINT8_SIZE 255
 /* Structure with input file name, output file name, decode flag and verbose flag. */
 struct arguments
 {
-	char *infile;  /* Input file name */
-	char *outfile; /* Output file name, null if stdout */
-	int decode;	   /* Should decode */
-	int verbose;   /* Verbose */
+	char *infile;		  /* Input file name */
+	char *outfile;		  /* Output file name, null if stdout */
+	int decode;			  /* Should decode */
+	__uint64_t search;	  /* Search buffer length */
+	__uint64_t lookAhead; /* Look-ahead buffer length */
+	int verbose;		  /* Verbose */
 };
 const char *argp_program_version =
 	"lzp 0.1";
@@ -22,6 +27,8 @@ static struct argp_option options[] =
 		{"verbose", 'v', 0, 0, "Produce verbose output"},
 		{"decode", 'd', 0, 0, "Decode instead of encoding file"},
 		{"output", 'o', "OUTPUT_FILE", 0, "Output to OUTPUT_FILE instead of to STDOUT"},
+		{"search", 's', "SEARCH_LENGTH", 0, "Length of search buffer, default 1024"},
+		{"lookahead", 'l', "LOOKAHEAD_LENGTH", 0, "Length of look-ahead buffer, default 16"},
 		{0}};
 
 static error_t
@@ -39,6 +46,30 @@ parse_opt(int key, char *arg, struct argp_state *state)
 		break;
 	case 'o':
 		arguments->outfile = arg;
+		break;
+	case 's':
+		__uint64_t searchValue;
+		int searchStatus = sscanf(arg, "%llu", &searchValue);
+		if (!searchStatus)
+		{
+			printf("Using the default value for search buffer length. ");
+			if (arguments->verbose)
+				printf("Provided value could not be parsed as unsigned integer.");
+			printf("\n");
+		}
+		arguments->search = searchValue;
+		break;
+	case 'l':
+		__uint64_t lookAheadValue;
+		int lookAheadStatus = sscanf(arg, "%llu", &lookAheadValue);
+		if (!lookAheadStatus)
+		{
+			printf("Using the default value for look-ahead buffer length. ");
+			if (arguments->verbose)
+				printf("Provided value could not be parsed as unsigned integer.");
+			printf("\n");
+		}
+		arguments->lookAhead = lookAheadValue;
 		break;
 	case ARGP_KEY_ARG:
 		if (state->arg_num >= 1)
@@ -75,12 +106,12 @@ int main(int argc, char **argv)
 {
 	/* Parsing arguments */
 
-	struct arguments arguments = {NULL, NULL, 0, 0};
+	struct arguments arguments = {NULL, NULL, 0, 1024, 16, 0};
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
 	/*Opening files*/
 
-	FILE *infile = fopen(arguments.infile, "r");
+	FILE *infile = fopen(arguments.infile, "rb");
 	if (!infile)
 	{
 		perror(arguments.infile);
@@ -89,7 +120,7 @@ int main(int argc, char **argv)
 	FILE *outfile;
 	if (arguments.outfile)
 	{
-		outfile = fopen(arguments.outfile, "w");
+		outfile = fopen(arguments.outfile, "wb");
 		if (!outfile)
 		{
 			perror(arguments.outfile);
@@ -101,6 +132,33 @@ int main(int argc, char **argv)
 		outfile = stdout;
 	}
 
+	/*Logic*/
+	int numBytesToWrite = 1;
+	if (arguments.search > UINT32_SIZE)
+	{
+		numBytesToWrite = 8;
+	}
+	else if (arguments.search > UINT16_SIZE)
+	{
+		numBytesToWrite = 4;
+	}
+	else if (arguments.search > UINT8_SIZE)
+	{
+		numBytesToWrite = 2;
+	}
+	typedef struct hit
+	{
+		__uint64_t offset;
+		__uint64_t length;
+		__uint8_t value;
+	};
+	if (!arguments.decode)
+	{
+	}
+	else
+	{
+	}
+	struct hit hit = {8000, 0, 0};
 	/*Closing files*/
 
 	fclose(infile);
