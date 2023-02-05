@@ -2,10 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <argp.h>
-#define UINT64_SIZE 18446744073709551615
-#define UINT32_SIZE 4294967295
-#define UINT16_SIZE 65535
-#define UINT8_SIZE 255
+#include "queue.h"
 /* Structure with input file name, output file name, decode flag and verbose flag. */
 struct arguments
 {
@@ -134,15 +131,15 @@ int main(int argc, char **argv)
 
 	/*Logic*/
 	int numBytesToWrite = 1;
-	if (arguments.search > UINT32_SIZE)
+	if (arguments.search > __UINT32_MAX__)
 	{
 		numBytesToWrite = 8;
 	}
-	else if (arguments.search > UINT16_SIZE)
+	else if (arguments.search > __UINT16_MAX__)
 	{
 		numBytesToWrite = 4;
 	}
-	else if (arguments.search > UINT8_SIZE)
+	else if (arguments.search > __UINT8_MAX__)
 	{
 		numBytesToWrite = 2;
 	}
@@ -154,11 +151,34 @@ int main(int argc, char **argv)
 	};
 	if (!arguments.decode)
 	{
+		/*Endode*/
+		struct queue *search = initalizeQueue(arguments.search);
+		struct queue *lookAhead = initalizeQueue(arguments.lookAhead);
+
+		do
+		{
+			if (isLeftAligned(lookAhead) && !isEmpty(lookAhead))
+			{
+				enqueue(search, dequeue(lookAhead));
+			}
+			__uint8_t element;
+			if (fread(&element, sizeof(element), 1, infile))
+			{
+				enqueue(lookAhead, element);
+			}
+			else
+			{
+				shiftLeft(lookAhead);
+			}
+		} while (!isEmpty(lookAhead));
+
+		freeQueue(search);
+		freeQueue(lookAhead);
 	}
 	else
 	{
+		/*Decode*/
 	}
-	struct hit hit = {8000, 0, 0};
 	/*Closing files*/
 
 	fclose(infile);
