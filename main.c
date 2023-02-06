@@ -130,18 +130,18 @@ int main(int argc, char **argv)
 	}
 
 	/*Logic*/
-	int numBytesToWrite = 1;
+	int numBytesForFiles = 1;
 	if (arguments.search > __UINT32_MAX__)
 	{
-		numBytesToWrite = 8;
+		numBytesForFiles = 8;
 	}
 	else if (arguments.search > __UINT16_MAX__)
 	{
-		numBytesToWrite = 4;
+		numBytesForFiles = 4;
 	}
 	else if (arguments.search > __UINT8_MAX__)
 	{
-		numBytesToWrite = 2;
+		numBytesForFiles = 2;
 	}
 	typedef struct hit
 	{
@@ -202,9 +202,9 @@ int main(int argc, char **argv)
 				}
 				__uint8_t value = dequeue(lookAhead);
 				enqueue(search, value);
-				fwrite(&hit.length, numBytesToWrite, 1, outfile);
+				fwrite(&hit.length, numBytesForFiles, 1, outfile);
 				if (hit.length)
-					fwrite(&hit.offset, numBytesToWrite, 1, outfile);
+					fwrite(&hit.offset, numBytesForFiles, 1, outfile);
 				fwrite(&value, sizeof(value), 1, outfile);
 			}
 		} while (!isEmpty(lookAhead) || hit.length);
@@ -215,6 +215,30 @@ int main(int argc, char **argv)
 	else
 	{
 		/*Decode*/
+		struct queue *search = initalizeQueue(arguments.search);
+		__uint64_t length;
+		while (fread(&length, numBytesForFiles, 1, infile))
+		{
+			__uint64_t offset = 0;
+			if (length != 0)
+			{
+				fread(&offset, numBytesForFiles, 1, infile);
+			}
+			__uint8_t element;
+			fread(&element, sizeof(element), 1, infile);
+			__uint64_t searchTemp = search->right - offset;
+			for (int i = 0; i < length; i++)
+			{
+				__uint8_t repeatedElement = search->buffer[searchTemp];
+				enqueue(search, repeatedElement);
+				fwrite(&repeatedElement, sizeof(repeatedElement), 1, outfile);
+				searchTemp++;
+				if (searchTemp > search->right)
+					searchTemp = search->right - offset;
+			}
+			enqueue(search, element);
+			fwrite(&element, sizeof(element), 1, outfile);
+		}
 	}
 	/*Closing files*/
 
