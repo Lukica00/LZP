@@ -131,15 +131,15 @@ int main(int argc, char **argv)
 
 	/*Logic*/
 	int numBytesForFiles = 1;
-	if (arguments.search > __UINT32_MAX__)
+	if (arguments.search - 1 > __UINT32_MAX__)
 	{
 		numBytesForFiles = 8;
 	}
-	else if (arguments.search > __UINT16_MAX__)
+	else if (arguments.search - 1 > __UINT16_MAX__)
 	{
 		numBytesForFiles = 4;
 	}
-	else if (arguments.search > __UINT8_MAX__)
+	else if (arguments.search - 1 > __UINT8_MAX__)
 	{
 		numBytesForFiles = 2;
 	}
@@ -190,9 +190,13 @@ int main(int argc, char **argv)
 								searchTemp = (searchTemp + 1) % search->length;
 							}
 						}
+						if (!searchTempOrigin)
+							searchTempOrigin = search->length - 1;
+						else
+							searchTempOrigin = searchTempOrigin - 1;
+
 						if (hitTemp.length > hit.length) // TODO razmisli jel bolje leviji il desniji kad ima dva ista
 							hit = hitTemp;
-						searchTempOrigin = (searchTempOrigin - 1) % search->length;
 						hitTemp.offset++;
 					} while (searchTempOrigin != search->left);
 				}
@@ -214,6 +218,8 @@ int main(int argc, char **argv)
 	}
 	else
 	{
+		/*TODO napisi negde da searchqueue mora da bude duzi od lookahead*/
+		/*TODO kad pises length moze maks da bude duzina bajtova lookAhead umesto od search*/
 		/*Decode*/
 		struct queue *search = initalizeQueue(arguments.search);
 		__uint64_t length;
@@ -226,19 +232,38 @@ int main(int argc, char **argv)
 			}
 			__uint8_t element;
 			fread(&element, sizeof(element), 1, infile);
-			__uint64_t searchTemp = search->right - offset;
+			__uint64_t searchRightTemp = search->right;
+			__uint64_t searchTemp;
+			if (offset > searchRightTemp)
+			{
+				searchTemp = search->length - offset + searchRightTemp;
+			}
+			else
+			{
+				searchTemp = searchRightTemp - offset;
+			}
 			for (int i = 0; i < length; i++)
 			{
 				__uint8_t repeatedElement = search->buffer[searchTemp];
 				enqueue(search, repeatedElement);
 				fwrite(&repeatedElement, sizeof(repeatedElement), 1, outfile);
-				searchTemp++;
-				if (searchTemp > search->right)
-					searchTemp = search->right - offset;
+				searchTemp = (searchTemp + 1) % search->length;
+				if (searchTemp == ((searchRightTemp + 1) % search->length))
+				{
+					if (offset > searchRightTemp)
+					{
+						searchTemp = search->length - offset + searchRightTemp;
+					}
+					else
+					{
+						searchTemp = searchRightTemp - offset;
+					}
+				}
 			}
 			enqueue(search, element);
 			fwrite(&element, sizeof(element), 1, outfile);
 		}
+		freeQueue(search);
 	}
 	/*Closing files*/
 

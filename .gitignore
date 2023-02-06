@@ -2,6 +2,15 @@
 !/**/
 !*.*
 
-*.o
-*.txt
+
 .vscode
+
+*.o
+
+*.lz77
+*.lzp
+
+*.txt
+*.jpg
+*.png
+*.bmp
