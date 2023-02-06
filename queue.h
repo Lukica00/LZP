@@ -40,8 +40,6 @@ void enqueue(struct queue *queue, __uint8_t element)
 }
 __uint8_t dequeue(struct queue *queue)
 {
-	if (isEmpty(queue) || !isLeftAligned(queue))
-		return 0; // TODO razmisli vredi li ova provera jer moze mozda da zavara kad je 0 bajt jer su neoznaceni brojevi
 	__uint8_t element = queue->buffer[queue->left];
 	queue->left = (queue->left + 1) % queue->length;
 	queue->elements--;

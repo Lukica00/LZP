@@ -147,28 +147,62 @@ int main(int argc, char **argv)
 	{
 		__uint64_t offset;
 		__uint64_t length;
-		__uint8_t value;
-	};
+	} hit;
 	if (!arguments.decode)
 	{
 		/*Endode*/
 		struct queue *search = initalizeQueue(arguments.search);
 		struct queue *lookAhead = initalizeQueue(arguments.lookAhead);
-
+		struct hit hit = {0, 0};
 		do
 		{
-			if (isLeftAligned(lookAhead) && !isEmpty(lookAhead))
+			__uint8_t elements[lookAhead->length];
+			int bytesRead = fread(&elements, sizeof(*elements), hit.length + 1, infile);
+			if (bytesRead)
 			{
-				enqueue(search, dequeue(lookAhead));
-			}
-			__uint8_t element;
-			if (fread(&element, sizeof(element), 1, infile))
-			{
-				enqueue(lookAhead, element);
+				for (int i = 0; i < bytesRead; i++)
+					enqueue(lookAhead, elements[i]);
 			}
 			else
 			{
 				shiftLeft(lookAhead);
+			}
+			hit.length = 0;
+			if (isLeftAligned(lookAhead))
+			{
+				__uint64_t searchTemp, searchTempOrigin = search->right;
+				if (!isEmpty(search))
+				{
+					struct hit hitTemp = {0, 0};
+					do
+					{
+						__uint64_t lookAheadTemp = lookAhead->left;
+						searchTemp = searchTempOrigin;
+						hitTemp.length = 0;
+						while (lookAhead->buffer[lookAheadTemp] == search->buffer[searchTemp])
+						{
+							hitTemp.length++;
+							lookAheadTemp = (lookAheadTemp + 1) % lookAhead->length;
+							if (searchTemp == search->right)
+								break;
+							searchTemp = (searchTemp + 1) % search->length;
+						}
+						if (hitTemp.length > hit.length) // TODO razmisli jel bolje leviji il desniji kad ima dva ista
+							hit = hitTemp;
+						searchTempOrigin = (searchTempOrigin - 1) % search->length;
+						hitTemp.offset++;
+					} while (searchTempOrigin != search->left);
+				}
+				for (int i = 0; i < hit.length; i++)
+				{
+					enqueue(search, dequeue(lookAhead));
+				}
+				__uint8_t value = dequeue(lookAhead);
+				enqueue(search, value);
+				fwrite(&hit.length, numBytesToWrite, 1, outfile);
+				if (hit.length)
+					fwrite(&hit.offset, numBytesToWrite, 1, outfile);
+				fwrite(&value, sizeof(value), 1, outfile);
 			}
 		} while (!isEmpty(lookAhead));
 
