@@ -179,13 +179,16 @@ int main(int argc, char **argv)
 						__uint64_t lookAheadTemp = lookAhead->left;
 						searchTemp = searchTempOrigin;
 						hitTemp.length = 0;
-						while (lookAhead->buffer[lookAheadTemp] == search->buffer[searchTemp])
+						while (lookAhead->buffer[lookAheadTemp] == search->buffer[searchTemp] && hitTemp.length < (lookAhead->elements - 1))
 						{
 							hitTemp.length++;
 							lookAheadTemp = (lookAheadTemp + 1) % lookAhead->length;
 							if (searchTemp == search->right)
-								break;
-							searchTemp = (searchTemp + 1) % search->length;
+								searchTemp = searchTempOrigin;
+							else
+							{
+								searchTemp = (searchTemp + 1) % search->length;
+							}
 						}
 						if (hitTemp.length > hit.length) // TODO razmisli jel bolje leviji il desniji kad ima dva ista
 							hit = hitTemp;
@@ -204,7 +207,7 @@ int main(int argc, char **argv)
 					fwrite(&hit.offset, numBytesToWrite, 1, outfile);
 				fwrite(&value, sizeof(value), 1, outfile);
 			}
-		} while (!isEmpty(lookAhead));
+		} while (!isEmpty(lookAhead) || hit.length);
 
 		freeQueue(search);
 		freeQueue(lookAhead);
