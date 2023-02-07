@@ -12,29 +12,29 @@ struct hashtable
 	struct hashtableentry *buffer;
 	__uint64_t size;
 };
-struct hashtableentry get(struct hashtable *table, __uint64_t index)
+struct hashtableentry getElement(struct hashtable *table, __uint64_t index)
 {
 	return table->buffer[index % table->size];
 }
-void set(struct hashtable *table, __uint64_t index, struct hashtableentry element)
+void setElement(struct hashtable *table, __uint64_t index, struct hashtableentry element)
 {
 	table->buffer[index % table->size] = element;
 }
-__uint64_t hash(__uint8_t *byteArray, __uint64_t size)
+__uint64_t hashFunction(struct queue *queue, __uint64_t size)
 {
 	// fnv-1 hash
 	__uint64_t hash = FNV_OFFSET;
 	for (int i = 0; i < size; i++)
 	{
 		hash = hash * FNV_PRIME;
-		hash = hash ^ byteArray[i];
+		hash = hash ^ queue->buffer[(queue->right - size + 1 + i) % queue->length];
 	}
 	return hash;
 }
 struct hashtable *initializeHashtable(__uint64_t size)
 {
 	struct hashtable *table = malloc(sizeof(*table));
-	table->buffer = malloc(sizeof(*table->buffer) * size);
+	table->buffer = calloc(sizeof(*table->buffer), size);
 	table->size = size;
 	return table;
 }

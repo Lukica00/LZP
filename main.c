@@ -3,15 +3,17 @@
 #include <stdlib.h>
 #include <argp.h>
 #include "queue.h"
+#include "hashtable.h"
 /* Structure with input file name, output file name, decode flag and verbose flag. */
 struct arguments
 {
-	char *infile;		  /* Input file name */
-	char *outfile;		  /* Output file name, null if stdout */
-	int decode;			  /* Should decode */
-	__uint64_t search;	  /* Search buffer length */
-	__uint64_t lookAhead; /* Look-ahead buffer length */
-	int verbose;		  /* Verbose */
+	char *infile;				/* Input file name */
+	char *outfile;				/* Output file name, null if stdout */
+	int decode;					/* Should decode */
+	__uint64_t search;			/* Search buffer length */
+	__uint64_t lookAhead;		/* Look-ahead buffer length */
+	int verbose;				/* Verbose */
+	__uint64_t predictionBytes; /*Number of bytes used for prediction*/
 };
 const char *argp_program_version =
 	"lzp 0.1";
@@ -26,6 +28,7 @@ static struct argp_option options[] =
 		{"output", 'o', "OUTPUT_FILE", 0, "Output to OUTPUT_FILE instead of to STDOUT"},
 		{"search", 's', "SEARCH_LENGTH", 0, "Length of search buffer, default 1024"},
 		{"lookahead", 'l', "LOOKAHEAD_LENGTH", 0, "Length of look-ahead buffer, default 16"},
+		{"prediction", 'p', "PREDICTION_BYTES", 0, "Number of bytes used for prediction, default 16"},
 		{0}};
 
 static error_t
@@ -44,29 +47,56 @@ parse_opt(int key, char *arg, struct argp_state *state)
 	case 'o':
 		arguments->outfile = arg;
 		break;
+	case 'p':
+		__uint64_t predictionValue;
+		int predictionStatus;
+		if (arg[0] == '-')
+			predictionStatus = 0;
+		else
+			predictionStatus = sscanf(arg, "%llu", &predictionValue);
+		if (!predictionStatus)
+		{
+			printf("Using the default value for number of prediction bytes. ");
+			if (arguments->verbose)
+				printf("%s could not be parsed as unsigned integer. ", arg);
+			printf("\n");
+		}
+		else
+			arguments->predictionBytes = predictionValue;
+		break;
 	case 's':
 		__uint64_t searchValue;
-		int searchStatus = sscanf(arg, "%llu", &searchValue);
+		int searchStatus;
+		if (arg[0] == '-')
+			searchStatus = 0;
+		else
+			searchStatus = sscanf(arg, "%llu", &searchValue);
 		if (!searchStatus)
 		{
 			printf("Using the default value for search buffer length. ");
 			if (arguments->verbose)
-				printf("Provided value could not be parsed as unsigned integer.");
+				printf("%s could not be parsed as unsigned integer. ", arg);
 			printf("\n");
 		}
-		arguments->search = searchValue;
+		else
+			arguments->search = searchValue;
 		break;
 	case 'l':
 		__uint64_t lookAheadValue;
-		int lookAheadStatus = sscanf(arg, "%llu", &lookAheadValue);
+		int lookAheadStatus;
+		if (arg[0] == '-')
+			lookAheadStatus = 0;
+		else
+			lookAheadStatus = sscanf(arg, "%llu", &lookAheadValue);
 		if (!lookAheadStatus)
 		{
 			printf("Using the default value for look-ahead buffer length. ");
 			if (arguments->verbose)
-				printf("Provided value could not be parsed as unsigned integer.");
+				printf("%s could not be parsed as unsigned integer. ", arg);
 			printf("\n");
 		}
-		arguments->lookAhead = lookAheadValue;
+		else
+			arguments->lookAhead = lookAheadValue;
 		break;
 	case ARGP_KEY_ARG:
 		if (state->arg_num >= 1)
@@ -103,9 +133,26 @@ int main(int argc, char **argv)
 {
 	/* Parsing arguments */
 
-	struct arguments arguments = {NULL, NULL, 0, 1024, 16, 0};
+	struct arguments arguments = {NULL, NULL, 0, 1024, 16, 0, 16};
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
-
+	if (arguments.lookAhead > arguments.search)
+	{
+		printf("Using the search buffer length for look-ahead buffer length. ");
+		if (arguments.verbose)
+		{
+			printf("Length of look-ahead buffer (%llu) cannot be longer than of search buffer(%llu). ", arguments.lookAhead, arguments.search);
+		}
+		arguments.lookAhead = arguments.search;
+	}
+	if (arguments.predictionBytes > arguments.search)
+	{
+		printf("Using the search buffer length for number of prediction bytes. ");
+		if (arguments.verbose)
+		{
+			printf("Number of prediction bytes (%llu) cannot be larger than length of search buffer(%llu). ", arguments.predictionBytes, arguments.search);
+		}
+		arguments.predictionBytes = arguments.search;
+	}
 	/*Opening files*/
 
 	FILE *infile = fopen(arguments.infile, "rb");
@@ -130,34 +177,43 @@ int main(int argc, char **argv)
 	}
 
 	/*Logic*/
-	int numBytesForFiles = 1;
+	int numBytesForLength = 1;
 	if (arguments.search - 1 > __UINT32_MAX__)
 	{
-		numBytesForFiles = 8;
+		numBytesForLength = 8;
 	}
 	else if (arguments.search - 1 > __UINT16_MAX__)
 	{
-		numBytesForFiles = 4;
+		numBytesForLength = 4;
 	}
 	else if (arguments.search - 1 > __UINT8_MAX__)
 	{
-		numBytesForFiles = 2;
+		numBytesForLength = 2;
 	}
-	typedef struct hit
+	int numBytesForOffset = 1;
+	if (arguments.lookAhead - 1 > __UINT32_MAX__)
 	{
-		__uint64_t offset;
-		__uint64_t length;
-	} hit;
+		numBytesForOffset = 8;
+	}
+	else if (arguments.lookAhead - 1 > __UINT16_MAX__)
+	{
+		numBytesForOffset = 4;
+	}
+	else if (arguments.lookAhead - 1 > __UINT8_MAX__)
+	{
+		numBytesForOffset = 2;
+	}
 	if (!arguments.decode)
 	{
 		/*Endode*/
 		struct queue *search = initalizeQueue(arguments.search);
 		struct queue *lookAhead = initalizeQueue(arguments.lookAhead);
-		struct hit hit = {0, 0};
+		struct hashtable *hashtable = initializeHashtable(arguments.search);
+		__uint64_t length = 0;
 		do
 		{
 			__uint8_t elements[lookAhead->length];
-			int bytesRead = fread(&elements, sizeof(*elements), hit.length + 1, infile);
+			int bytesRead = fread(&elements, sizeof(*elements), length + 1, infile);
 			if (bytesRead)
 			{
 				for (int i = 0; i < bytesRead; i++)
@@ -167,21 +223,21 @@ int main(int argc, char **argv)
 			{
 				shiftLeft(lookAhead);
 			}
-			hit.length = 0;
+			length = 0;
 			if (isLeftAligned(lookAhead))
 			{
-				__uint64_t searchTemp, searchTempOrigin = search->right;
-				if (!isEmpty(search))
+				if (search->length >= arguments.predictionBytes)
 				{
-					struct hit hitTemp = {0, 0};
-					do
+					__uint64_t hash = hashFunction(search, arguments.predictionBytes);
+					struct hashtableentry entry = getElement(hashtable, hash);
+					if (entry.is)
 					{
+						__uint64_t searchTemp, searchTempOrigin = (entry.pointer + 1) % search->length;
 						__uint64_t lookAheadTemp = lookAhead->left;
 						searchTemp = searchTempOrigin;
-						hitTemp.length = 0;
-						while (lookAhead->buffer[lookAheadTemp] == search->buffer[searchTemp] && hitTemp.length < (lookAhead->elements - 1))
+						while (lookAhead->buffer[lookAheadTemp] == search->buffer[searchTemp] && length < (lookAhead->elements - 1))
 						{
-							hitTemp.length++;
+							length++;
 							lookAheadTemp = (lookAheadTemp + 1) % lookAhead->length;
 							if (searchTemp == search->right)
 								searchTemp = searchTempOrigin;
@@ -190,45 +246,36 @@ int main(int argc, char **argv)
 								searchTemp = (searchTemp + 1) % search->length;
 							}
 						}
-						if (!searchTempOrigin)
-							searchTempOrigin = search->length - 1;
-						else
-							searchTempOrigin = searchTempOrigin - 1;
-
-						if (hitTemp.length > hit.length) // TODO razmisli jel bolje leviji il desniji kad ima dva ista
-							hit = hitTemp;
-						hitTemp.offset++;
-					} while (searchTempOrigin != search->left);
+					}
+					for (int i = 0; i < length; i++)
+					{
+						enqueue(search, dequeue(lookAhead));
+					}
+					entry.is = 1;
+					entry.pointer = search->right;
+					setElement(hashtable, hash, entry);
 				}
-				for (int i = 0; i < hit.length; i++)
-				{
-					enqueue(search, dequeue(lookAhead));
-				}
+				fwrite(&length, numBytesForLength, 1, outfile);
 				__uint8_t value = dequeue(lookAhead);
 				enqueue(search, value);
-				fwrite(&hit.length, numBytesForFiles, 1, outfile);
-				if (hit.length)
-					fwrite(&hit.offset, numBytesForFiles, 1, outfile);
 				fwrite(&value, sizeof(value), 1, outfile);
 			}
-		} while (!isEmpty(lookAhead) || hit.length);
+		} while (!isEmpty(lookAhead) || length);
 
 		freeQueue(search);
 		freeQueue(lookAhead);
 	}
 	else
 	{
-		/*TODO napisi negde da searchqueue mora da bude duzi od lookahead*/
-		/*TODO kad pises length moze maks da bude duzina bajtova lookAhead umesto od search*/
 		/*Decode*/
 		struct queue *search = initalizeQueue(arguments.search);
 		__uint64_t length;
-		while (fread(&length, numBytesForFiles, 1, infile))
+		while (fread(&length, numBytesForLength, 1, infile))
 		{
 			__uint64_t offset = 0;
 			if (length != 0)
 			{
-				fread(&offset, numBytesForFiles, 1, infile);
+				fread(&offset, numBytesForOffset, 1, infile);
 			}
 			__uint8_t element;
 			fread(&element, sizeof(element), 1, infile);
