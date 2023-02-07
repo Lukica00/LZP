@@ -226,7 +226,7 @@ int main(int argc, char **argv)
 			length = 0;
 			if (isLeftAligned(lookAhead))
 			{
-				if (search->length >= arguments.predictionBytes)
+				if (search->elements >= arguments.predictionBytes)
 				{
 					__uint64_t hash = hashFunction(search, arguments.predictionBytes);
 					struct hashtableentry entry = getElement(hashtable, hash);
@@ -254,14 +254,14 @@ int main(int argc, char **argv)
 					entry.is = 1;
 					entry.pointer = search->right;
 					setElement(hashtable, hash, entry);
+					fwrite(&length, numBytesForLength, 1, outfile);
 				}
-				fwrite(&length, numBytesForLength, 1, outfile);
 				__uint8_t value = dequeue(lookAhead);
 				enqueue(search, value);
 				fwrite(&value, sizeof(value), 1, outfile);
 			}
 		} while (!isEmpty(lookAhead) || length);
-
+		freeHashtable(hashtable);
 		freeQueue(search);
 		freeQueue(lookAhead);
 	}
@@ -269,26 +269,19 @@ int main(int argc, char **argv)
 	{
 		/*Decode*/
 		struct queue *search = initalizeQueue(arguments.search);
-		__uint64_t length;
+		struct hashtable *hashtable = initializeHashtable(arguments.search);
+		__uint8_t element;
+		while (search->elements < arguments.predictionBytes && fread(&element, sizeof(element), 1, infile))
+		{
+			enqueue(search, element);
+			fwrite(&element, sizeof(element), 1, outfile);
+		}
+		__uint64_t length = 0;
 		while (fread(&length, numBytesForLength, 1, infile))
 		{
-			__uint64_t offset = 0;
-			if (length != 0)
-			{
-				fread(&offset, numBytesForOffset, 1, infile);
-			}
-			__uint8_t element;
-			fread(&element, sizeof(element), 1, infile);
-			__uint64_t searchRightTemp = search->right;
-			__uint64_t searchTemp;
-			if (offset > searchRightTemp)
-			{
-				searchTemp = search->length - offset + searchRightTemp;
-			}
-			else
-			{
-				searchTemp = searchRightTemp - offset;
-			}
+			__uint64_t hash = hashFunction(search, arguments.predictionBytes);
+			struct hashtableentry entry = getElement(hashtable, hash);
+			__uint64_t searchTempOrigin = (entry.pointer + 1) % search->length, searchTemp = searchTempOrigin, searchRightTemp = search->right;
 			for (int i = 0; i < length; i++)
 			{
 				__uint8_t repeatedElement = search->buffer[searchTemp];
@@ -297,19 +290,16 @@ int main(int argc, char **argv)
 				searchTemp = (searchTemp + 1) % search->length;
 				if (searchTemp == ((searchRightTemp + 1) % search->length))
 				{
-					if (offset > searchRightTemp)
-					{
-						searchTemp = search->length - offset + searchRightTemp;
-					}
-					else
-					{
-						searchTemp = searchRightTemp - offset;
-					}
+					searchTemp = searchTempOrigin;
 				}
 			}
+			entry.pointer = search->right;
+			setElement(hashtable, hash, entry);
+			fread(&element, sizeof(element), 1, infile);
 			enqueue(search, element);
 			fwrite(&element, sizeof(element), 1, outfile);
 		}
+		freeHashtable(hashtable);
 		freeQueue(search);
 	}
 	/*Closing files*/
