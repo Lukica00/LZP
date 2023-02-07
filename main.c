@@ -28,7 +28,7 @@ static struct argp_option options[] =
 		{"output", 'o', "OUTPUT_FILE", 0, "Output to OUTPUT_FILE instead of to STDOUT"},
 		{"search", 's', "SEARCH_LENGTH", 0, "Length of search buffer, default 1024"},
 		{"lookahead", 'l', "LOOKAHEAD_LENGTH", 0, "Length of look-ahead buffer, default 16"},
-		{"prediction", 'p', "PREDICTION_BYTES", 0, "Number of bytes used for prediction, default 16"},
+		{"prediction", 'p', "PREDICTION_BYTES", 0, "Number of bytes used for prediction, default 2"},
 		{0}};
 
 static error_t
@@ -133,7 +133,7 @@ int main(int argc, char **argv)
 {
 	/* Parsing arguments */
 
-	struct arguments arguments = {NULL, NULL, 0, 1024, 16, 0, 16};
+	struct arguments arguments = {NULL, NULL, 0, 1024, 16, 0, 2};
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
 	if (arguments.lookAhead > arguments.search)
 	{
