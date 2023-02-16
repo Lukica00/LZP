@@ -2,8 +2,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <argp.h>
+#include <math.h>
 #include "queue.h"
 #include "hashtable.h"
+#include "bitbuffer.h"
+// TODO pocisti inkludovi
 /* Structure with input file name, output file name, decode flag and verbose flag. */
 struct arguments
 {
@@ -177,38 +180,14 @@ int main(int argc, char **argv)
 	}
 
 	/*Logic*/
-	int numBytesForLength = 1;
-	if (arguments.search - 1 > __UINT32_MAX__)
-	{
-		numBytesForLength = 8;
-	}
-	else if (arguments.search - 1 > __UINT16_MAX__)
-	{
-		numBytesForLength = 4;
-	}
-	else if (arguments.search - 1 > __UINT8_MAX__)
-	{
-		numBytesForLength = 2;
-	}
-	int numBytesForOffset = 1;
-	if (arguments.lookAhead - 1 > __UINT32_MAX__)
-	{
-		numBytesForOffset = 8;
-	}
-	else if (arguments.lookAhead - 1 > __UINT16_MAX__)
-	{
-		numBytesForOffset = 4;
-	}
-	else if (arguments.lookAhead - 1 > __UINT8_MAX__)
-	{
-		numBytesForOffset = 2;
-	}
+	int numBitsForLength = ceil(log2(arguments.lookAhead));
 	if (!arguments.decode)
 	{
 		/*Endode*/
 		struct queue *search = initalizeQueue(arguments.search);
 		struct queue *lookAhead = initalizeQueue(arguments.lookAhead);
 		struct hashtable *hashtable = initializeHashtable(arguments.search);
+		struct bitbuffer *bitbuffer = initializeBitbuffer();
 		__uint64_t length = 0;
 		do
 		{
@@ -254,13 +233,31 @@ int main(int argc, char **argv)
 					entry.is = 1;
 					entry.pointer = search->right;
 					setElement(hashtable, hash, entry);
-					fwrite(&length, numBytesForLength, 1, outfile);
+					if (length)
+					{
+						writeBits(bitbuffer, 1, 1);
+						writeBits(bitbuffer, length, numBitsForLength);
+					}
+					else
+					{
+						writeBits(bitbuffer, 0, 1);
+					}
 				}
 				__uint8_t value = dequeue(lookAhead);
 				enqueue(search, value);
-				fwrite(&value, sizeof(value), 1, outfile);
+				writeBits(bitbuffer, value, 8);
+				while (bitbuffer->length >= 8)
+				{
+					__uint8_t data = readBits(bitbuffer, 8);
+					fwrite(&data, sizeof(data), 1, outfile);
+				}
 			}
 		} while (!isEmpty(lookAhead) || length);
+		while (bitbuffer->length != 0)
+		{
+			__uint8_t data = readBits(bitbuffer, 8);
+			fwrite(&data, sizeof(data), 1, outfile);
+		}
 		freeHashtable(hashtable);
 		freeQueue(search);
 		freeQueue(lookAhead);
@@ -276,28 +273,72 @@ int main(int argc, char **argv)
 			enqueue(search, element);
 			fwrite(&element, sizeof(element), 1, outfile);
 		}
+		struct bitbuffer *bitbuffer = initializeBitbuffer();
+		__uint8_t inData = 0;
 		__uint64_t length = 0;
-		while (fread(&length, numBytesForLength, 1, infile))
+		__uint8_t phase = 0; // 0 ceka se, 1 procitan flag, 2 procitana duzina, 3 procitan podatak
+		while (1)
 		{
-			__uint64_t hash = hashFunction(search, arguments.predictionBytes);
-			struct hashtableentry entry = getElement(hashtable, hash);
-			__uint64_t searchTempOrigin = (entry.pointer + 1) % search->length, searchTemp = searchTempOrigin, searchRightTemp = search->right;
-			for (int i = 0; i < length; i++)
+			int bytesRead = 0;
+			if (bitbuffer->length <= 120)
+				bytesRead = fread(&inData, sizeof(inData), 1, infile);
+			if (!bytesRead && bitbuffer->length < 8 && phase == 0)
 			{
-				__uint8_t repeatedElement = search->buffer[searchTemp];
-				enqueue(search, repeatedElement);
-				fwrite(&repeatedElement, sizeof(repeatedElement), 1, outfile);
-				searchTemp = (searchTemp + 1) % search->length;
-				if (searchTemp == ((searchRightTemp + 1) % search->length))
-				{
-					searchTemp = searchTempOrigin;
-				}
+				printf("%d, %d, %d, %d\n", bytesRead, bitbuffer->length, phase, numBitsForLength);
+				break;
 			}
-			entry.pointer = search->right;
-			setElement(hashtable, hash, entry);
-			fread(&element, sizeof(element), 1, infile);
-			enqueue(search, element);
-			fwrite(&element, sizeof(element), 1, outfile);
+			if (bytesRead)
+				writeBits(bitbuffer, inData, 8);
+			switch (phase)
+			{
+			case 0:
+				if (bitbuffer->length >= 1)
+				{
+					__uint8_t flag = readBits(bitbuffer, 1);
+					length = 0;
+					if (flag)
+						phase = 1;
+					else
+						phase = 2;
+				}
+				break;
+			case 1:
+				if (bitbuffer->length >= numBitsForLength)
+				{
+					length = readBits(bitbuffer, numBitsForLength);
+					phase = 2;
+				}
+				break;
+			case 2:
+				if (bitbuffer->length >= 8)
+				{
+					element = 0;
+					element = readBits(bitbuffer, 8);
+					phase = 3;
+				}
+				break;
+			case 3:
+				__uint64_t hash = hashFunction(search, arguments.predictionBytes);
+				struct hashtableentry entry = getElement(hashtable, hash);
+				__uint64_t searchTempOrigin = (entry.pointer + 1) % search->length, searchTemp = searchTempOrigin, searchRightTemp = search->right;
+				for (int i = 0; i < length; i++)
+				{
+					__uint8_t repeatedElement = search->buffer[searchTemp];
+					enqueue(search, repeatedElement);
+					fwrite(&repeatedElement, sizeof(repeatedElement), 1, outfile);
+					searchTemp = (searchTemp + 1) % search->length;
+					if (searchTemp == ((searchRightTemp + 1) % search->length))
+					{
+						searchTemp = searchTempOrigin;
+					}
+				}
+				entry.pointer = search->right;
+				setElement(hashtable, hash, entry);
+				enqueue(search, element);
+				fwrite(&element, sizeof(element), 1, outfile);
+				phase = 0;
+				break;
+			}
 		}
 		freeHashtable(hashtable);
 		freeQueue(search);
