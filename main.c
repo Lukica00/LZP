@@ -6,7 +6,7 @@
 #include "queue.h"
 #include "hashtable.h"
 #include "bitbuffer.h"
-// TODO pocisti inkludovi
+// TODO pocisti inkludovi, testriaj stdin kompresiju
 /* Structure with input file name, output file name, decode flag and verbose flag. */
 struct arguments
 {
@@ -283,10 +283,7 @@ int main(int argc, char **argv)
 			if (bitbuffer->length <= 120)
 				bytesRead = fread(&inData, sizeof(inData), 1, infile);
 			if (!bytesRead && bitbuffer->length < 8 && phase == 0)
-			{
-				printf("%d, %d, %d, %d\n", bytesRead, bitbuffer->length, phase, numBitsForLength);
 				break;
-			}
 			if (bytesRead)
 				writeBits(bitbuffer, inData, 8);
 			switch (phase)
@@ -321,10 +318,12 @@ int main(int argc, char **argv)
 				__uint64_t hash = hashFunction(search, arguments.predictionBytes);
 				struct hashtableentry entry = getElement(hashtable, hash);
 				__uint64_t searchTempOrigin = (entry.pointer + 1) % search->length, searchTemp = searchTempOrigin, searchRightTemp = search->right;
-				for (int i = 0; i < length; i++)
+
+				struct queue *queueTemp = initalizeQueue(arguments.search);
+				for (__uint64_t i = 0; i < length; i++)
 				{
 					__uint8_t repeatedElement = search->buffer[searchTemp];
-					enqueue(search, repeatedElement);
+					enqueue(queueTemp, repeatedElement);
 					fwrite(&repeatedElement, sizeof(repeatedElement), 1, outfile);
 					searchTemp = (searchTemp + 1) % search->length;
 					if (searchTemp == ((searchRightTemp + 1) % search->length))
@@ -332,11 +331,17 @@ int main(int argc, char **argv)
 						searchTemp = searchTempOrigin;
 					}
 				}
+				for (__uint64_t i = 0; i < length; i++)
+				{
+					enqueue(search, dequeue(queueTemp));
+				}
+
 				entry.pointer = search->right;
 				setElement(hashtable, hash, entry);
 				enqueue(search, element);
 				fwrite(&element, sizeof(element), 1, outfile);
 				phase = 0;
+				freeQueue(queueTemp);
 				break;
 			}
 		}
