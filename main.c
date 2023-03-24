@@ -49,6 +49,7 @@ parse_opt(int key, char *arg, struct argp_state *state)
 		break;
 	case 'o':
 		arguments->outfile = arg;
+		break;
 	case 'i':
 		arguments->infile = arg;
 		break;
