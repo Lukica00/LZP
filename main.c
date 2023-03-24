@@ -1,16 +1,15 @@
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
 #include <argp.h>
 #include <math.h>
 #include "queue.h"
 #include "hashtable.h"
 #include "bitbuffer.h"
-// TODO pocisti inkludovi, testriaj stdin kompresiju
+
 /* Structure with input file name, output file name, decode flag and verbose flag. */
 struct arguments
 {
-	char *infile;				/* Input file name */
+	char *infile;				/* Input file name, null if stdin */
 	char *outfile;				/* Output file name, null if stdout */
 	int decode;					/* Should decode */
 	__uint64_t search;			/* Search buffer length */
@@ -29,6 +28,7 @@ static struct argp_option options[] =
 		{"verbose", 'v', 0, 0, "Produce verbose output"},
 		{"decode", 'd', 0, 0, "Decode instead of encoding file"},
 		{"output", 'o', "OUTPUT_FILE", 0, "Output to OUTPUT_FILE instead of to STDOUT"},
+		{"input", 'i', "INPUT_FILE", 0, "Input from INPUT_FILE instead of to STDIN"},
 		{"search", 's', "SEARCH_LENGTH", 0, "Length of search buffer, default 1024"},
 		{"lookahead", 'l', "LOOKAHEAD_LENGTH", 0, "Length of look-ahead buffer, default 16"},
 		{"prediction", 'p', "PREDICTION_BYTES", 0, "Number of bytes used for prediction, default 2"},
@@ -49,6 +49,8 @@ parse_opt(int key, char *arg, struct argp_state *state)
 		break;
 	case 'o':
 		arguments->outfile = arg;
+	case 'i':
+		arguments->infile = arg;
 		break;
 	case 'p':
 		__uint64_t predictionValue;
@@ -59,10 +61,8 @@ parse_opt(int key, char *arg, struct argp_state *state)
 			predictionStatus = sscanf(arg, "%llu", &predictionValue);
 		if (!predictionStatus)
 		{
-			printf("Using the default value for number of prediction bytes. ");
 			if (arguments->verbose)
-				printf("%s could not be parsed as unsigned integer. ", arg);
-			printf("\n");
+				printf("Using the default value for number of prediction bytes. %s could not be parsed as unsigned integer. \n", arg);
 		}
 		else
 			arguments->predictionBytes = predictionValue;
@@ -76,10 +76,8 @@ parse_opt(int key, char *arg, struct argp_state *state)
 			searchStatus = sscanf(arg, "%llu", &searchValue);
 		if (!searchStatus)
 		{
-			printf("Using the default value for search buffer length. ");
 			if (arguments->verbose)
-				printf("%s could not be parsed as unsigned integer. ", arg);
-			printf("\n");
+				printf("Using the default value for search buffer length. %s could not be parsed as unsigned integer. \n", arg);
 		}
 		else
 			arguments->search = searchValue;
@@ -93,23 +91,20 @@ parse_opt(int key, char *arg, struct argp_state *state)
 			lookAheadStatus = sscanf(arg, "%llu", &lookAheadValue);
 		if (!lookAheadStatus)
 		{
-			printf("Using the default value for look-ahead buffer length. ");
 			if (arguments->verbose)
-				printf("%s could not be parsed as unsigned integer. ", arg);
-			printf("\n");
+				printf("Using the default value for look-ahead buffer length. %s could not be parsed as unsigned integer. \n", arg);
 		}
 		else
 			arguments->lookAhead = lookAheadValue;
 		break;
 	case ARGP_KEY_ARG:
-		if (state->arg_num >= 1)
+		if (state->arg_num > 0)
 		{
 			argp_usage(state);
 		}
-		arguments->infile = arg;
 		break;
 	case ARGP_KEY_END:
-		if (state->arg_num < 1)
+		if (state->arg_num < 0)
 		{
 			argp_usage(state);
 		}
@@ -121,7 +116,7 @@ parse_opt(int key, char *arg, struct argp_state *state)
 }
 
 /* Arguments description*/
-static char args_doc[] = "INPUT_FILE";
+static char args_doc[] = "";
 
 /* Program description*/
 static char doc[] = "LZP -- Lempel-Ziv + Prediction";
@@ -131,38 +126,42 @@ static struct argp argp = {options, parse_opt, args_doc, doc};
 /*
    The main function.
 */
-
 int main(int argc, char **argv)
 {
 	/* Parsing arguments */
-
 	struct arguments arguments = {NULL, NULL, 0, 1024, 16, 0, 2};
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
 	if (arguments.lookAhead > arguments.search)
 	{
-		printf("Using the search buffer length for look-ahead buffer length. ");
 		if (arguments.verbose)
 		{
-			printf("Length of look-ahead buffer (%llu) cannot be longer than of search buffer(%llu). ", arguments.lookAhead, arguments.search);
+			printf("Using the search buffer length for look-ahead buffer length. Length of look-ahead buffer (%llu) cannot be longer than of search buffer(%llu). \n", arguments.lookAhead, arguments.search);
 		}
 		arguments.lookAhead = arguments.search;
 	}
 	if (arguments.predictionBytes > arguments.search)
 	{
-		printf("Using the search buffer length for number of prediction bytes. ");
 		if (arguments.verbose)
 		{
-			printf("Number of prediction bytes (%llu) cannot be larger than length of search buffer(%llu). ", arguments.predictionBytes, arguments.search);
+			printf("Using the search buffer length for number of prediction bytes. Number of prediction bytes (%llu) cannot be larger than length of search buffer(%llu). \n", arguments.predictionBytes, arguments.search);
 		}
 		arguments.predictionBytes = arguments.search;
 	}
-	/*Opening files*/
 
-	FILE *infile = fopen(arguments.infile, "rb");
-	if (!infile)
+	/*Opening files*/
+	FILE *infile;
+	if (arguments.infile)
 	{
-		perror(arguments.infile);
-		return 1;
+		infile = fopen(arguments.infile, "rb");
+		if (!infile)
+		{
+			perror(arguments.infile);
+			return 1;
+		}
+	}
+	else
+	{
+		infile = stdin;
 	}
 	FILE *outfile;
 	if (arguments.outfile)
@@ -348,8 +347,8 @@ int main(int argc, char **argv)
 		freeHashtable(hashtable);
 		freeQueue(search);
 	}
-	/*Closing files*/
 
+	/*Closing files*/
 	fclose(infile);
 	if (arguments.outfile)
 	{
